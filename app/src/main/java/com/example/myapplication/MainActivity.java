@@ -4,8 +4,19 @@ import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -14,6 +25,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 import android.view.View;
@@ -31,7 +43,12 @@ import androidx.core.app.ActivityCompat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
+
+import timber.log.Timber;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -50,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
 	// To get a UUID to use with your app, you can use one of the many random UUID generators on the web,
 	// then initialize a UUID with fromString(String).
 	private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+	private static final byte[] HEX_ARRAY = "0123456789ABCDEF".getBytes(StandardCharsets.US_ASCII);
 
 	// Name for the SDP record when creating server socket
 	private static final String NAME_SECURE = "BlueToothApplicationSecure";
@@ -63,72 +81,72 @@ public class MainActivity extends AppCompatActivity {
 	private static final int MESSAGE_STATE_CHANGE = 1;
 	private static final int MESSAGE_READ = 2;
 	private static final int MESSAGE_WRITE = 3;
-	private static final int MESSAGE_DEVICE_NAME = 4;
+	private static final int MESSAGE_DEVICE_INFO = 4;
 	private static final int MESSAGE_TOAST = 5;
-
+	private static final int GATT_MAX_MTU_SIZE = 517; // ATT Maximum Transmission Unit (MTU) determines the maximum length of an ATT data packet
 	public static String EXTRA_DEVICE_ADDRESS = "device_address";
 	private final String[] permissions = {
 			"android.permission.ACCESS_FINE_LOCATION",
 			"android.permission.BLUETOOTH_CONNECT",
 			"android.permission.BLUETOOTH_SCAN"
 	};
-
 	// Key names received from the Bluetooth Service Handler
-	String DEVICE_NAME = "device_name";
+	String DEVICE_INFO = "device_info";
+	BluetoothManager bluetoothManager;
 	String TOAST = "toast";
 	String TAG = "BlueToothActivity";
-
+	String readMessage = null;
 	BluetoothAdapter bluetoothAdapter;
 
 	TextView mBluetoothStatus;
 	Intent intent;
 	private EditText mCurrentWeight;
 	/**
-	 * Name of the connected device
-	 */
-	private String mConnectedDeviceName = null;
-	/**
 	 * The Handler that gets information back from the Bluetooth Service
 	 */
 	private final Handler mHandler = new Handler() {
 		@Override
 		public void handleMessage(Message msg) {
-			Log.i(TAG, msg.toString());
+			Timber.tag(TAG).i(msg.toString());
 
 			switch (msg.what) {
-
 				case MESSAGE_STATE_CHANGE:
 					switch (msg.arg1) {
 						case STATE_CONNECTED:
-							String info = "Connected to " + mConnectedDeviceName;
-							Log.i(TAG, "STATE_CONNECTED " + info);
+							String name = msg.getData().getString(DEVICE_INFO);
+							String info = "Connected to " + name;
+							Timber.tag(TAG).i("STATE_CONNECTED %s", info);
 							mBluetoothStatus.setText(info);
-							Toast.makeText(getApplicationContext(), info, Toast.LENGTH_SHORT).show();
 							break;
+
 						case STATE_CONNECTING:
-							mBluetoothStatus.setText("Connecting...");
+							mBluetoothStatus.setText(getString(R.string.connecting));
 							break;
+
 						case STATE_LISTEN:
+							mBluetoothStatus.setText(getString(R.string.scanning));
+							break;
+
 						case STATE_NONE:
-							mBluetoothStatus.setText("Not connected");
+							mBluetoothStatus.setText(getString(R.string.not_connected));
 							break;
 					}
 					break;
 
 				case MESSAGE_READ:
-					mBluetoothStatus.setText("Receiving input");
+					mBluetoothStatus.setText(getString(R.string.receiving_input));
 
 					byte[] readBuf = (byte[]) msg.obj;
 					// byte[] weight = parseMessage(readBuf);
 					// readMessage = new String(weight, StandardCharsets.UTF_8).trim();
 
 					// construct a string from the valid bytes in the buffer
-					String readMessage = new String(readBuf, 0, msg.arg1);
+					readMessage = new String(readBuf, 0, msg.arg1);
 					mCurrentWeight.setText(readMessage);
 					break;
 
 				case MESSAGE_WRITE:
-					mBluetoothStatus.setText("Writing output");
+					mBluetoothStatus.setText(getString(R.string.writing_output));
 
 					byte[] writeBuf = (byte[]) msg.obj;
 
@@ -136,65 +154,89 @@ public class MainActivity extends AppCompatActivity {
 					String writeMessage = new String(writeBuf);
 					break;
 
-				case MESSAGE_DEVICE_NAME:
-					// save the connected device's name
-					mConnectedDeviceName = msg.getData().getString(DEVICE_NAME);
-					String info = "Connected to " + mConnectedDeviceName;
-					Log.i(TAG, "MESSAGE_DEVICE_NAME " + info);
+				case MESSAGE_DEVICE_INFO:
+					String name = msg.getData().getString(DEVICE_INFO);
+					String info = "Selected " + name;
+					Timber.tag(TAG).i("MESSAGE_DEVICE_INFO %s", info);
 					mBluetoothStatus.setText(info);
-					Toast.makeText(getApplicationContext(), info, Toast.LENGTH_SHORT).show();
 					break;
 
 				case MESSAGE_TOAST:
-					mBluetoothStatus.setText("Toast state");
-					Toast.makeText(getApplicationContext(), msg.getData().getString(TOAST), Toast.LENGTH_SHORT).show();
+					mBluetoothStatus.setText(msg.getData().getString(TOAST));
 					break;
 			}
 		}
 	};
+	private BluetoothGatt gattClient;
+	private boolean isScanning = false;
+	private ScanCallback scanCallback;
+	private BluetoothGattCallback gattClientCallback;
+	private Context mContext;
+	private BluetoothLeScanner bleScanner;
+	private ScanSettings scanSettings;
+
 	private int mState;
 	private int mNewState;
 	private AcceptThread mSecureAcceptThread;
 	private AcceptThread mInsecureAcceptThread;
 	private ConnectThread mConnectThread;
 	private ConnectedThread mConnectedThread;
+
 	AdapterView.OnItemClickListener mDeviceClickListener = new AdapterView.OnItemClickListener() {
 		@Override
 		public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
 			checkBluetoothPermission();
 
-			// Cancel discovery because it's costly and we're about to connect
-			bluetoothAdapter.cancelDiscovery();
+			if (!bluetoothAdapter.isEnabled()) {
+				Toast.makeText(getBaseContext(), "Bluetooth not on", Toast.LENGTH_SHORT).show();
+			} else {
+				// Clear the input field
+				mCurrentWeight.setText(null);
 
-			// Get the device MAC address, which is the last 17 chars in the View
-			String info = ((TextView) view).getText().toString();
-			final String address = info.substring(info.length() - 17);
-			final String name = info.substring(info.length() - 20, info.length() - 17);
+				// Get the device MAC address, which is the last 17 chars in the View
+				String info = ((TextView) view).getText().toString();
+				final String address = info.substring(info.length() - 17);
+				final String name = info.substring(info.length() - 20, info.length() - 17);
 
-			// Create the result Intent and include the MAC address
-			intent = new Intent();
-			intent.putExtra(EXTRA_DEVICE_ADDRESS, address);
+				BluetoothDevice device = bluetoothAdapter.getRemoteDevice(address);
 
-			// Set result
-			setResult(Activity.RESULT_OK, intent);
+				// Send the name of the connected device back to the UI Activity
+				Message msg = mHandler.obtainMessage(MESSAGE_DEVICE_INFO);
+				Bundle bundle = new Bundle();
+				bundle.putString(DEVICE_INFO, device.getName() + " (" + device.getAddress() + ")");
+				msg.setData(bundle);
+				mHandler.sendMessage(msg);
 
-			Log.i(TAG, "Selected: " + address);
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+					// Always stop your BLE scan before connecting to a BLE device.
+					// Doing so saves power and more importantly, helps increase the reliability of the connection process.
+					stopBleScan();
 
-			connectDevice(intent, false);
+					// Setting autoConnect to true doesn’t cause Android to automatically try to reconnect to the BluetoothDevice!
+					// Instead, it causes the connect operation to not timeout,
+					// which can be helpful if you’re trying to connect to a BluetoothDevice you had cached from earlier.
+					// However, setting the flag to true may result in a slower than usual connection process
+					// if the device is already discoverable in the immediate vicinity.
+					// Preferably set the flag to false, and instead rely on the onConnectionStateChange callback
+					// to inform us on whether the connection process succeeded.
+					// In the event of a connection failure, we can simply try to connect again with autoConnect set to false.
+					gattClient = device.connectGatt(mContext, false, gattClientCallback);
+				} else {
+					// Cancel discovery because it's costly and we're about to connect
+					bluetoothAdapter.cancelDiscovery();
 
-			// Always stop your BLE scan before connecting to a BLE device.
-			// Doing so saves power and more importantly, helps increase the reliability of the connection process.
-			// stopBleScan();
+					// Create the result Intent and include the MAC address
+					intent = new Intent();
+					intent.putExtra(EXTRA_DEVICE_ADDRESS, address);
 
-			// Setting autoConnect to true doesn’t cause Android to automatically try to reconnect to the BluetoothDevice!
-			// Instead, it causes the connect operation to not timeout,
-			// which can be helpful if you’re trying to connect to a BluetoothDevice you had cached from earlier.
-			// However, setting the flag to true may result in a slower than usual connection process
-			// if the device is already discoverable in the immediate vicinity.
-			// Preferably set the flag to false, and instead rely on the onConnectionStateChange callback
-			// to inform us on whether the connection process succeeded.
-			// In the event of a connection failure, we can simply try to connect again with autoConnect set to false.
-			// device.connectGatt(mContext, false, gattCallback);
+					// Set result
+					setResult(Activity.RESULT_OK, intent);
+
+					Log.i(TAG, "Selected: " + address);
+
+					connectDevice(intent, false);
+				}
+			}
 		}
 	};
 
@@ -230,6 +272,16 @@ public class MainActivity extends AppCompatActivity {
 		}
 	};
 
+	public static String bytesToHex(byte[] bytes) {
+		byte[] hexChars = new byte[bytes.length * 2];
+		for (int j = 0; j < bytes.length; j++) {
+			int v = bytes[j] & 0xFF;
+			hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+			hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+		}
+		return new String(hexChars, StandardCharsets.UTF_8);
+	}
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -258,7 +310,22 @@ public class MainActivity extends AppCompatActivity {
 			public void onClick(View view) {
 				checkBluetoothPermission();
 
-				doDiscovery();
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+					if (isScanning) {
+						stopBleScan();
+
+						// Send a scan stopped message to the activity
+						Message writeStopMsg = mHandler.obtainMessage(MESSAGE_TOAST);
+						Bundle bundle = new Bundle();
+						bundle.putString(TOAST, "Scan stopped. Click discover to re-scan!");
+						writeStopMsg.setData(bundle);
+						mHandler.sendMessage(writeStopMsg);
+					} else {
+						startBleScan();
+					}
+				} else {
+					doDiscovery();
+				}
 			}
 		});
 
@@ -324,6 +391,16 @@ public class MainActivity extends AppCompatActivity {
 			// startActivityForResult(discoverableIntent, 1);
 		}
 
+		bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+		bluetoothAdapter = bluetoothManager.getAdapter(); // for BLE
+
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			bleScanner = bluetoothAdapter.getBluetoothLeScanner();
+			// SCAN_MODE_LOW_LATENCY is recommended if the app will only be scanning for a brief period of time,
+			// typically to find a very specific type of device.
+			scanSettings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
+		}
+
 	}
 
 	private byte[] parseMessage(byte[] buffer) {
@@ -365,6 +442,230 @@ public class MainActivity extends AppCompatActivity {
 			} else {
 				Toast.makeText(getApplicationContext(), "Bluetooth not on", Toast.LENGTH_SHORT).show();
 				mBluetoothStatus.setText("Stopped Scan");
+			}
+		}
+	}
+
+	private void startBleScan() {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			mBTArrayAdapter.clear();
+
+			scanCallback = new ScanCallback() {
+				@Override
+				public void onScanResult(int callbackType, ScanResult result) {
+					super.onScanResult(callbackType, result);
+					checkBluetoothPermission();
+
+					BluetoothDevice device = result.getDevice();
+
+					// add the name to the list
+					String deviceInfo = "Tap to connect to " + device.getName() + "\n" + device.getAddress();
+					if (mBTArrayAdapter.getPosition(deviceInfo) < 0) {
+						mBTArrayAdapter.add(deviceInfo);
+						mBTArrayAdapter.notifyDataSetChanged();
+					}
+
+					// Give the new state to the Handler so the UI Activity can update
+					mHandler.obtainMessage(MESSAGE_STATE_CHANGE, STATE_LISTEN, -1).sendToTarget();
+				}
+			};
+
+			gattClientCallback = new BluetoothGattCallback() {
+				@Override
+				public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+					super.onConnectionStateChange(gatt, status, newState);
+					checkBluetoothPermission();
+
+					BluetoothDevice device = gatt.getDevice();
+					if (status == BluetoothGatt.GATT_SUCCESS) {
+						if (newState == BluetoothProfile.STATE_CONNECTED) {
+							Message msg = mHandler.obtainMessage(MESSAGE_STATE_CHANGE, STATE_CONNECTED);
+							Bundle bundle = new Bundle();
+							bundle.putString(DEVICE_INFO, device.getName() + " (" + device.getAddress() + ")");
+							msg.setData(bundle);
+							mHandler.sendMessage(msg);
+
+							// It’s crucial to store a reference to the BluetoothGatt object that is also provided by this callback.
+							// This will be the main interface through which we issue commands to the BLE device.
+							// It’s the gateway to other BLE operations such as service discovery, reading and writing data, and even performing a connection teardown.
+							gattClient = gatt;
+
+							// result at onMtuChanged()
+							// Unfortunately, the onMtuChanged() callback may not get delivered sometimes when working with closed source firmware,
+							// which can put a damper on things if the app is relying on the callback being delivered before proceeding with something.
+							// Always assume the worst case — that the ATT MTU is at its minimum value of 23
+							// and plan around that when working with closed source firmware,
+							// with any successful onMtuChanged() calls being considered as added bonuses.
+							gatt.requestMtu(GATT_MAX_MTU_SIZE);
+
+							new Handler(Looper.getMainLooper()).post(new Runnable() {
+								@Override
+								public void run() {
+									checkBluetoothPermission();
+
+									// Highly recommended to call discoverServices() from the main/UI thread
+									// to prevent a rare threading issue from causing a deadlock situation
+									// where the app can be left waiting for the onServicesDiscovered() callback that somehow got dropped.
+									// The outcome of service discovery will be delivered via BluetoothGattCallback’s onServicesDiscovered() method
+									gatt.discoverServices();
+								}
+							});
+						} else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+							Timber.tag(TAG).d("BluetoothGattCallback: Successfully disconnected from %s", device.getAddress());
+							mHandler.obtainMessage(MESSAGE_STATE_CHANGE, STATE_NONE, -1, device.getName()).sendToTarget();
+							gatt.close();
+						} else if (newState == BluetoothProfile.STATE_CONNECTING) {
+							mHandler.obtainMessage(MESSAGE_STATE_CHANGE, STATE_CONNECTING, -1, device.getName()).sendToTarget();
+						}
+					} else {
+						// Send a connection failed message to the activity
+						Message writeStopMsg = mHandler.obtainMessage(MESSAGE_TOAST);
+						Bundle bundle = new Bundle();
+						bundle.putString(TOAST, "Error: " + status + "!");
+						writeStopMsg.setData(bundle);
+						mHandler.sendMessage(writeStopMsg);
+
+						Timber.tag(TAG).d("BluetoothGattCallback: Error " + status + " encountered for " + device.getAddress() + "! Disconnecting...");
+						gatt.close();
+					}
+				}
+
+				@Override
+				public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+					super.onMtuChanged(gatt, mtu, status);
+					Timber.tag(TAG).w("ATT MTU changed to " + mtu + ", success: " + (status == BluetoothGatt.GATT_SUCCESS));
+
+					gattClient = gatt;
+
+					new Handler(Looper.getMainLooper()).post(new Runnable() {
+						@Override
+						public void run() {
+							checkBluetoothPermission();
+
+							// Highly recommended to call discoverServices() from the main/UI thread
+							// to prevent a rare threading issue from causing a deadlock situation
+							// where the app can be left waiting for the onServicesDiscovered() callback that somehow got dropped.
+							// The outcome of service discovery will be delivered via BluetoothGattCallback’s onServicesDiscovered() method
+							gatt.discoverServices();
+						}
+					});
+				}
+
+				@Override
+				public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+					super.onServicesDiscovered(gatt, status);
+					checkBluetoothPermission();
+
+					gattClient = gatt;
+
+					// Test service
+					// readBatteryLevel();
+
+					// Get all the available services and characteristics
+					List<BluetoothGattService> services = gatt.getServices();
+					Timber.tag(TAG).d("BluetoothGattCallback: Discovered " + gatt.getServices().size() + " services for " + gatt.getDevice().getName());
+					printGattTable(services);
+					// Consider connection setup as complete here
+				}
+
+				@Override
+				public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+					super.onCharacteristicRead(gatt, characteristic, status);
+
+					Timber.tag(TAG).d("BluetoothGattCallback: Read characteristic " + characteristic.getUuid() + " - status: " + status);
+
+					switch (status) {
+						case BluetoothGatt.GATT_SUCCESS:
+							checkBluetoothPermission();
+
+							byte[] buffer = characteristic.getValue();
+							Timber.tag(TAG).d("BluetoothGattCallback: Read characteristic " + characteristic.getUuid() + ":\n" + bytesToHex(buffer));
+
+							// characteristic.getDescriptors().get(0).getValue()
+							readMessage = new String(buffer, StandardCharsets.UTF_8).trim();
+							Timber.tag(TAG).d("readMessage: %s", readMessage);
+
+							if (!readMessage.equals("")) {
+								Message readMsg = mHandler.obtainMessage(
+										MESSAGE_READ, buffer.length, -1,
+										buffer);
+								readMsg.sendToTarget();
+							} else {
+								// Send a read failure message back to the activity.
+								Message writeFailureMsg = mHandler.obtainMessage(MESSAGE_TOAST);
+								Bundle bundle = new Bundle();
+								bundle.putString(TOAST, "Failed to read from device");
+								writeFailureMsg.setData(bundle);
+								mHandler.sendMessage(writeFailureMsg);
+							}
+
+						case BluetoothGatt.GATT_READ_NOT_PERMITTED:
+							if (readMessage == null) {
+								// Send a read failure message back to the activity.
+								Message writeFailureMsg = mHandler.obtainMessage(MESSAGE_TOAST);
+								Bundle bundle = new Bundle();
+								bundle.putString(TOAST, "Failed to read from device");
+								writeFailureMsg.setData(bundle);
+								mHandler.sendMessage(writeFailureMsg);
+							}
+							Timber.tag(TAG).e("BluetoothGattCallback: Read not permitted for %s", characteristic.getUuid());
+
+						default:
+							Timber.tag(TAG).e("BluetoothGattCallback: Characteristic read failed for " + characteristic.getUuid() + ", error: " + status);
+					}
+				}
+			};
+
+			mBTArrayAdapter.notifyDataSetChanged();
+			bleScanner.startScan(null, scanSettings, scanCallback);
+			isScanning = true;
+		}
+	}
+
+	private void stopBleScan() {
+		checkBluetoothPermission();
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			bleScanner.stopScan(scanCallback);
+			isScanning = false;
+		}
+	}
+
+	private void printGattTable(List<BluetoothGattService> services) {
+		checkBluetoothPermission();
+
+		if (services.isEmpty()) {
+			Timber.tag(TAG).d("printGattTable: No service and characteristic available, call discoverServices() first?");
+		} else {
+			for (BluetoothGattService service : services) {
+				for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+					// BluetoothGattCharacteristic contains a getProperties() method that is a bitmask of its properties
+					// as represented by the BluetoothGattCharacteristic.PROPERTY_* constants.
+					// We can then perform a bitwise AND between getProperties() and a given PROPERTY_* constant
+					// to figure out if a certain property is present on the characteristic or not.
+					Timber.tag(TAG).d("BluetoothGattService: "
+							+ "\nUUID: " + service.getUuid()
+							+ "\nContents: " + service.describeContents()
+							+ "\nType: " + service.getType());
+
+					List<BluetoothGattDescriptor> descriptors = characteristic.getDescriptors();
+					Timber.tag(TAG).d("BluetoothGattCharacteristic: "
+							+ "\nUUID: " + characteristic.getUuid()
+							+ "\nProperties: " + characteristic.getProperties()
+							+ "\nPermissions: " + characteristic.getPermissions()
+							+ "\nDescriptors: " + descriptors
+							+ "\nValue: " + Arrays.toString(characteristic.getValue()));
+
+					// PROPERTY_READ, PROPERTY_WRITE or PROPERTY_WRITE_NO_RESPONSE
+					// The formatType parameter determines how the characteristic value is to be interpreted.
+					// FORMAT_UINT16 specifies that the first two bytes of the characteristic value at the given offset are interpreted to generate the return value.
+					if (characteristic.getProperties() == BluetoothGattCharacteristic.PROPERTY_READ) {
+						// && characteristic.getPermissions() == BluetoothGattCharacteristic.PERMISSION_READ) {
+						// A callback should get delivered to your BluetoothGattCallback’s onCharacteristicRead(),
+						// regardless if the read operation had succeeded or not.
+						gattClient.readCharacteristic(characteristic);
+						Timber.tag(TAG).d("readCharacteristic: %s", characteristic.getUuid());
+					}
+				}
 			}
 		}
 	}
@@ -462,9 +763,9 @@ public class MainActivity extends AppCompatActivity {
 		mConnectedThread.start();
 
 		// Send the name of the connected device back to the UI Activity
-		Message msg = mHandler.obtainMessage(MESSAGE_DEVICE_NAME);
+		Message msg = mHandler.obtainMessage(MESSAGE_DEVICE_INFO);
 		Bundle bundle = new Bundle();
-		bundle.putString(DEVICE_NAME, device.getName());
+		bundle.putString(DEVICE_INFO, device.getName() + " (" + device.getAddress() + ")");
 		msg.setData(bundle);
 		mHandler.sendMessage(msg);
 

@@ -59,7 +59,7 @@ public class MainActivity extends AppCompatActivity {
 	private static final UUID MY_UUID_SECURE = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66");
 	private static final UUID MY_UUID_INSECURE = UUID.fromString("8ce255c0-200a-11e0-ac64-0800200c9a66");
 
-	// Message types sent from the BluetoothChatService Handler
+	// Message types sent from the Bluetooth Service Handler
 	private static final int MESSAGE_STATE_CHANGE = 1;
 	private static final int MESSAGE_READ = 2;
 	private static final int MESSAGE_WRITE = 3;
@@ -73,7 +73,7 @@ public class MainActivity extends AppCompatActivity {
 			"android.permission.BLUETOOTH_SCAN"
 	};
 
-	// Key names received from the BluetoothChatService Handler
+	// Key names received from the Bluetooth Service Handler
 	String DEVICE_NAME = "device_name";
 	String TOAST = "toast";
 	String TAG = "BlueToothActivity";

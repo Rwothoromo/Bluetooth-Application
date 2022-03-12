@@ -81,6 +81,7 @@ public class MainActivity extends AppCompatActivity {
 	BluetoothAdapter bluetoothAdapter;
 
 	TextView mBluetoothStatus;
+	Intent intent;
 	private EditText mCurrentWeight;
 	/**
 	 * Name of the connected device
@@ -92,14 +93,17 @@ public class MainActivity extends AppCompatActivity {
 	private final Handler mHandler = new Handler() {
 		@Override
 		public void handleMessage(Message msg) {
-			Log.d(TAG, msg.toString());
+			Log.i(TAG, msg.toString());
 
 			switch (msg.what) {
 
 				case MESSAGE_STATE_CHANGE:
 					switch (msg.arg1) {
 						case STATE_CONNECTED:
-							mBluetoothStatus.setText("Connected to " + mConnectedDeviceName);
+							String info = "Connected to " + mConnectedDeviceName;
+							Log.i(TAG, "STATE_CONNECTED " + info);
+							mBluetoothStatus.setText(info);
+							Toast.makeText(getApplicationContext(), info, Toast.LENGTH_SHORT).show();
 							break;
 						case STATE_CONNECTING:
 							mBluetoothStatus.setText("Connecting...");
@@ -135,8 +139,10 @@ public class MainActivity extends AppCompatActivity {
 				case MESSAGE_DEVICE_NAME:
 					// save the connected device's name
 					mConnectedDeviceName = msg.getData().getString(DEVICE_NAME);
-					mBluetoothStatus.setText("Connected to " + mConnectedDeviceName);
-					Toast.makeText(getApplicationContext(), "Connected to " + mConnectedDeviceName, Toast.LENGTH_SHORT).show();
+					String info = "Connected to " + mConnectedDeviceName;
+					Log.i(TAG, "MESSAGE_DEVICE_NAME " + info);
+					mBluetoothStatus.setText(info);
+					Toast.makeText(getApplicationContext(), info, Toast.LENGTH_SHORT).show();
 					break;
 
 				case MESSAGE_TOAST:
@@ -166,15 +172,14 @@ public class MainActivity extends AppCompatActivity {
 			final String name = info.substring(info.length() - 20, info.length() - 17);
 
 			// Create the result Intent and include the MAC address
-			Intent intent = new Intent();
+			intent = new Intent();
 			intent.putExtra(EXTRA_DEVICE_ADDRESS, address);
 
 			// Set result
 			setResult(Activity.RESULT_OK, intent);
 
-			Log.d(TAG, "Selected: " + address);
+			Log.i(TAG, "Selected: " + address);
 
-			// connectDevice(intent, true);
 			connectDevice(intent, false);
 
 			// Always stop your BLE scan before connecting to a BLE device.
@@ -192,7 +197,9 @@ public class MainActivity extends AppCompatActivity {
 			// device.connectGatt(mContext, false, gattCallback);
 		}
 	};
+
 	private ArrayAdapter<String> mBTArrayAdapter;
+
 	/**
 	 * BroadcastReceiver for ACTION_FOUND.
 	 * Caution: Performing device discovery consumes a lot of the Bluetooth adapter's resources.
@@ -213,7 +220,6 @@ public class MainActivity extends AppCompatActivity {
 				String deviceHardwareAddress = device.getAddress(); // MAC address
 
 				String deviceInfo = "Tap to connect to " + deviceName + "\n" + deviceHardwareAddress;
-				Log.d(TAG, deviceInfo);
 
 				// add the name to the list
 				if (mBTArrayAdapter.getPosition(deviceInfo) < 0) {
@@ -341,7 +347,7 @@ public class MainActivity extends AppCompatActivity {
 	private void doDiscovery() {
 		checkBluetoothPermission();
 
-		Log.d(TAG, "doDiscovery()");
+		Log.i(TAG, "doDiscovery()");
 
 		// If we're already discovering, stop it
 		if (bluetoothAdapter.isDiscovering()) {
@@ -391,7 +397,7 @@ public class MainActivity extends AppCompatActivity {
 	 * session in listening (server) mode. Called by the Activity onResume()
 	 */
 	public synchronized void start() {
-		Log.d(TAG, "start");
+		Log.i(TAG, "start");
 
 		// Cancel any thread attempting to make a connection
 		if (mConnectThread != null) {
@@ -427,7 +433,7 @@ public class MainActivity extends AppCompatActivity {
 	private void manageMyConnectedSocket(BluetoothSocket socket, BluetoothDevice device, final String socketType) {
 		checkBluetoothPermission();
 
-		Log.d(TAG, "connected, Socket Type:" + socketType);
+		Log.i(TAG, "connected, Socket Type:" + socketType);
 
 		// Cancel the thread that completed the connection
 		if (mConnectThread != null) {
@@ -529,7 +535,7 @@ public class MainActivity extends AppCompatActivity {
 	 * @param secure Socket Security type - Secure (true) , Insecure (false)
 	 */
 	public synchronized void connect(BluetoothDevice device, boolean secure) {
-		Log.d(TAG, "connect to: " + device);
+		Log.i(TAG, "connect to: " + device);
 
 		// Cancel any thread attempting to make a connection
 		if (mState == STATE_CONNECTING) {
@@ -557,7 +563,7 @@ public class MainActivity extends AppCompatActivity {
 	 * Update UI title according to the current state of the chat connection
 	 */
 	private synchronized void updateUserInterfaceTitle() {
-		Log.d(TAG, "updateUserInterfaceTitle() " + mNewState + " -> " + mState);
+		Log.i(TAG, "updateUserInterfaceTitle() " + mNewState + " -> " + mState);
 		mNewState = mState;
 
 		// Give the new state to the Handler so the UI Activity can update
@@ -604,7 +610,7 @@ public class MainActivity extends AppCompatActivity {
 		private final String mSocketType;
 
 		public AcceptThread(boolean secure) {
-			Log.d(TAG, "AcceptThread started");
+			Log.i(TAG, "AcceptThread started");
 			mSocketType = secure ? "Secure" : "Insecure";
 
 			// Use a temporary object that is later assigned to mmServerSocket
@@ -624,10 +630,10 @@ public class MainActivity extends AppCompatActivity {
 				// MY_UUID is the app's UUID string, also used by the client code.
 				if (secure) {
 					tmp = bluetoothAdapter.listenUsingRfcommWithServiceRecord(NAME_SECURE, MY_UUID_SECURE);
-					Log.d(TAG, "listenUsingRfcommWithServiceRecord called: " + (tmp == null));
+					Log.i(TAG, "listenUsingRfcommWithServiceRecord called: " + (tmp == null));
 				} else {
 					tmp = bluetoothAdapter.listenUsingInsecureRfcommWithServiceRecord(NAME_INSECURE, MY_UUID_INSECURE);
-					Log.d(TAG, "listenUsingInsecureRfcommWithServiceRecord called: " + (tmp == null));
+					Log.i(TAG, "listenUsingInsecureRfcommWithServiceRecord called: " + (tmp == null));
 				}
 			} catch (IOException e) {
 				Log.e(TAG, "ServerSocket Type: " + mSocketType + " listen() method failed", e);
@@ -638,7 +644,7 @@ public class MainActivity extends AppCompatActivity {
 		}
 
 		public void run() {
-			Log.d(TAG, "Socket Type: " + mSocketType + " BEGIN mAcceptThread " + this);
+			Log.i(TAG, "Socket Type: " + mSocketType + " BEGIN mAcceptThread " + this);
 			setName("AcceptThread" + mSocketType);
 
 			BluetoothSocket socket;
@@ -651,7 +657,7 @@ public class MainActivity extends AppCompatActivity {
 					// containing a UUID that matches the one registered with this listening server socket.
 					// When successful, accept() returns a connected BluetoothSocket.
 					socket = mmServerSocket.accept();
-					Log.d(TAG, "ServerSocket's accept() method called");
+					Log.i(TAG, "ServerSocket's accept() method called");
 				} catch (IOException e) {
 					Log.e(TAG, "ServerSocket's accept() method failed", e);
 					break;
@@ -686,7 +692,7 @@ public class MainActivity extends AppCompatActivity {
 				// Unlike TCP/IP, RFCOMM allows only one connected client per channel at a time,
 				// so in most cases it makes sense to call close() on the BluetoothServerSocket immediately after accepting a connected socket.
 				mmServerSocket.close();
-				Log.d(TAG, "ServerSocket's close() method called");
+				Log.i(TAG, "ServerSocket's close() method called");
 			} catch (IOException e) {
 				Log.e(TAG, "Could not close the connect ServerSocket", e);
 			}
@@ -728,10 +734,10 @@ public class MainActivity extends AppCompatActivity {
 				// To use a matching UUID, hard-code the UUID string into your app, and then reference it from both the server and client code.
 				if (secure) {
 					tmp = device.createRfcommSocketToServiceRecord(MY_UUID_SECURE);
-					Log.d(TAG, "createRfcommSocketToServiceRecord called: " + (tmp == null));
+					Log.i(TAG, "createRfcommSocketToServiceRecord called: " + (tmp == null));
 				} else {
 					tmp = device.createInsecureRfcommSocketToServiceRecord(MY_UUID_INSECURE);
-					Log.d(TAG, "createInsecureRfcommSocketToServiceRecord called: " + (tmp == null));
+					Log.i(TAG, "createInsecureRfcommSocketToServiceRecord called: " + (tmp == null));
 				}
 			} catch (IOException e) {
 				Log.e(TAG, "Socket's create() method failed", e);
@@ -763,13 +769,19 @@ public class MainActivity extends AppCompatActivity {
 				// If the connection fails, or if the connect() method times out (after about 12 seconds),
 				// then the method throws an IOException.
 				mmSocket.connect();
-				Log.d(TAG, "Socket's connect() method called");
+				Log.i(TAG, "Socket's connect() method called");
 			} catch (IOException connectException) {
-				Log.e(TAG, "Socket's connect() method failed", connectException);
-				// Unable to connect; close the socket and return.
-				cancel();
+				Log.e(TAG, "Socket's connect() method failed " + mSocketType, connectException);
 
-				connectionFailed();
+				if (mSocketType.equals("Secure")) {
+					// Unable to connect; close the socket and return.
+					cancel();
+
+					connectionFailed();
+				} else {
+					// Retry with secure socket
+					connectDevice(intent, true);
+				}
 			}
 
 			// Reset the ConnectThread because we're done
@@ -787,7 +799,7 @@ public class MainActivity extends AppCompatActivity {
 				// When you're done with your BluetoothSocket, always call close().
 				// Doing so immediately closes the connected socket and releases all related internal resources.
 				mmSocket.close();
-				Log.d(TAG, "Socket's close() method called: " + mSocketType);
+				Log.i(TAG, "Socket's close() method called: " + mSocketType);
 			} catch (IOException e) {
 				Log.e(TAG, "Could not close the client socket: " + mSocketType, e);
 			}
@@ -819,7 +831,7 @@ public class MainActivity extends AppCompatActivity {
 		private byte[] mmBuffer; // mmBuffer store for the stream
 
 		public ConnectedThread(BluetoothSocket socket, String socketType) {
-			Log.d(TAG, "create ConnectedThread: " + socketType);
+			Log.i(TAG, "create ConnectedThread: " + socketType);
 
 			mmSocket = socket;
 			InputStream tmpIn = null;

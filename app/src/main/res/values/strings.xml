@@ -1,3 +1,9 @@
 <resources>
-    <string name="app_name">BlueToothApplication</string>
+    <string name="app_name">Bluetooth Application</string>
+    <string name="connecting" translatable="false">Connecting...</string>
+    <string name="scanning" translatable="false">Scanning</string>
+    <string name="not_connected" translatable="false">Not connected</string>
+    <string name="receiving_input" translatable="false">Receiving input</string>
+    <string name="writing_output" translatable="false">Writing output</string>
+    <string name="bt_not_found" translatable="false">Status: Bluetooth not found</string>
 </resources>

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.myapplication">
+
+    <!-- Also Needed if your app uses Bluetooth scan results to derive physical location.
+        ACCESS_FINE_LOCATION is necessary because, on Android 11 and lower,
+        a Bluetooth scan could potentially be used to gather information about the location of the user. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Request legacy Bluetooth permissions on older devices. -->
+    <!-- BLUETOOTH is necessary to perform any Bluetooth classic or BLE communication,
+        such as requesting a connection, accepting a connection, and transferring data. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <!-- If you want your app to initiate device discovery or manipulate Bluetooth settings,
+        you must declare the BLUETOOTH_ADMIN permission.
+        Most apps need this permission solely for the ability to discover local Bluetooth devices.  -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!-- Needed only if your app looks for Bluetooth devices.
+        If your app doesn't use Bluetooth scan results to derive physical location information,
+        you can strongly assert that your app doesn't derive physical location.
+
+        Include android:usesPermissionFlags="neverForLocation" only if you can strongly assert that
+        your app never derives physical location from Bluetooth scan results. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+
+    <!-- Needed only if your app makes the device discoverable to Bluetooth devices. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+    <!-- Needed only if your app communicates with already-paired Bluetooth devices. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MyApplication">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
